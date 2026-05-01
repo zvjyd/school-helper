@@ -1,0 +1,13 @@
+package com.example.schooltexthelper;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SchoolTextHelperApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(SchoolTextHelperApplication.class, args);
+    }
+
+}

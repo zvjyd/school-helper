@@ -55,15 +55,32 @@ public class ParseService {
 
             // ===== 1️⃣ 判断文件类型 =====
             if (fileName.endsWith(".pdf")) {
-                text = parsePDF(file);
+
+                try {
+                    text = parsePDF(file);
+                } catch (Exception e) {
+                    System.out.println("PDF解析失败：" + file.getName());
+                    e.printStackTrace();
+                    return;
+                }
+
             } else if (fileName.endsWith(".docx")) {
-                text = parseWord(file);
+
+                try {
+                    text = parseWord(file);
+                } catch (Exception e) {
+                    System.out.println("Word解析失败：" + file.getName());
+                    e.printStackTrace();
+                    return;
+                }
+
             } else {
                 System.out.println("不支持的文件类型：" + fileName);
                 return;
             }
 
             if (text == null || text.trim().isEmpty()) {
+                System.out.println("解析文本长度：" + (text == null ? 0 : text.length()));
                 System.out.println("解析失败：文本为空");
                 return;
             }
@@ -73,6 +90,10 @@ public class ParseService {
 
             // ===== 3️⃣ 切块（核心）=====
             List<String> chunks = splitText(text, 500);
+            if (chunks.isEmpty()) {
+                System.out.println("切块失败：没有生成chunk");
+                return;
+            }//保护
 
             // ===== 4️⃣ 入库 =====
             int index = 0;
@@ -80,7 +101,7 @@ public class ParseService {
             for (String c : chunks) {
 
                 // 过滤太短的无效块
-                if (c.trim().length() < 20) continue;
+                if (c.trim().length() < 50) continue;
 
                 Chunk chunk = new Chunk();
                 chunk.setDocId(doc.getId());
@@ -151,15 +172,34 @@ public class ParseService {
     // ===============================
     // ✂️ 切块（核心）
     // ===============================
-    private List<String> splitText(String text, int chunkSize) {
+    private List<String> splitText(String text, int maxLength) {
 
         List<String> chunks = new ArrayList<>();
 
-        int length = text.length();
+        // 🔥 1️⃣ 按句子切（中英文都支持）
+        String[] sentences = text.split("(?<=[。！？.!?])");
 
-        for (int i = 0; i < length; i += chunkSize) {
-            int end = Math.min(i + chunkSize, length);
-            chunks.add(text.substring(i, end));
+        StringBuilder current = new StringBuilder();
+
+        for (String sentence : sentences) {
+
+            // 去掉首尾空格
+            sentence = sentence.trim();
+            if (sentence.isEmpty()) continue;
+
+            // 🔥 2️⃣ 如果当前块 + 新句子 超长度 → 先存
+            if (current.length() + sentence.length() > maxLength) {
+
+                chunks.add(current.toString());
+                current = new StringBuilder();
+            }
+
+            current.append(sentence);
+        }
+
+        // 🔥 3️⃣ 收尾
+        if (!current.isEmpty()) {
+            chunks.add(current.toString());
         }
 
         return chunks;

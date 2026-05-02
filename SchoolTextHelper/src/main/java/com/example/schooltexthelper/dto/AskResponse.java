@@ -8,6 +8,17 @@ import java.util.List;
 @Data
 @AllArgsConstructor
 public class AskResponse {
+
     private String answer;
-    private List<String> sources;
+
+    // 👉 改成结构化
+    private List<Source> sources;
+
+    @Data
+    @AllArgsConstructor
+    public static class Source {
+        private String content;
+        private Long docId;
+        private Integer position;
+    }
 }

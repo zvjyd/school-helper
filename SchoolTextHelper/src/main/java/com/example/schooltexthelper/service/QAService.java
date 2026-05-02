@@ -1,12 +1,12 @@
 package com.example.schooltexthelper.service;
 
-import com.example.schooltexthelper.repository.ChunkRepository;
 import com.example.schooltexthelper.dto.AskResponse;
 import com.example.schooltexthelper.entity.Chunk;
 import com.example.schooltexthelper.util.HttpClientUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -17,43 +17,66 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class QAService {
 
-    private final ChunkRepository chunkRepository;
+    // ✅ 使用搜索服务（按问题检索）
+    private final SearchService searchService;
 
-    // 🔥 换成你的 DeepSeek Key
-    private static final String API_KEY = "sk-5d8b371dc5ea4634a1c78cd05bcc66f5";
+    @Value("${deepseek.api-key}")
+    private String apiKey;
 
     public AskResponse ask(String question) {
 
-        // 1️⃣ 检索
-        List<Chunk> chunks = chunkRepository.findTop5ByOrderByIdDesc();
+        // ❗ 0️⃣ 基础校验
+        if (question == null || question.isBlank()) {
+            return new AskResponse("问题不能为空", List.of());
+        }
 
-        List<String> contextList = chunks.stream()
+        // 1️⃣ 检索相关 chunk
+        List<Chunk> chunks = searchService.search(question);
+
+        if (chunks.isEmpty()) {
+            return new AskResponse("未找到相关内容，请换个问题试试", List.of());
+        }
+
+        // 2️⃣ 构建上下文
+        String context = chunks.stream()
                 .map(Chunk::getContent)
-                .toList();
+                .reduce("", (a, b) -> a + "\n" + b);
 
-        String context = String.join("\n", contextList);
+        // ❗ 防止 prompt 过长（很关键）
+        if (context.length() > 4000) {
+            context = context.substring(0, 4000);
+        }
 
-        // 2️⃣ Prompt（很关键）
+        // 3️⃣ Prompt
         String prompt = """
 你是一个校园政策问答助手，请严格根据提供的资料回答。
 
 【资料】
-""" + context + """
+%s
 
 【问题】
-""" + question + """
+%s
 
 要求：
-1. 必须基于资料回答
+1. 只能使用【资料】回答
 2. 不允许编造
 3. 如果资料不足，说：无法从文档中找到答案
 4. 回答要结构清晰
-""";
+""".formatted(context, question);
 
-        // 3️⃣ 调用 DeepSeek
+        // 4️⃣ 调 AI
         String answer = callDeepSeek(prompt);
 
-        return new AskResponse(answer, contextList);
+        // 5️⃣ 构建结构化 sources（🔥 给前端用）
+        List<AskResponse.Source> sources = chunks.stream()
+                .map(c -> new AskResponse.Source(
+                        c.getContent(),
+                        c.getDocId(),
+                        c.getPosition()
+                ))
+                .toList();
+
+        return new AskResponse(answer, sources);
     }
 
     private String callDeepSeek(String prompt) {
@@ -70,7 +93,7 @@ public class QAService {
             String response = HttpClientUtil.post(
                     "https://api.deepseek.com/v1/chat/completions",
                     body,
-                    API_KEY
+                    apiKey
             );
 
             System.out.println("DeepSeek返回：" + response);
@@ -82,16 +105,15 @@ public class QAService {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(response);
 
-            // ⭐ 1️⃣ 先处理错误（关键！）
+            // ⭐ 1️⃣ 处理错误
             if (root.has("error")) {
-                String msg = root.get("error").get("message").asText();
-                return "AI错误：" + msg;
+                return "AI错误：" + root.get("error").get("message").asText();
             }
 
-            // ⭐ 2️⃣ 再取正常结果
+            // ⭐ 2️⃣ 解析返回
             JsonNode choices = root.get("choices");
 
-            if (choices == null || choices.size() == 0) {
+            if (choices == null || choices.isEmpty()) {
                 return "AI返回异常";
             }
 

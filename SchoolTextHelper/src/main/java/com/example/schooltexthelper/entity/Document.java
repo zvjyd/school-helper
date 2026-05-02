@@ -23,4 +23,8 @@ public class Document {
 
     // 发布时间（后期解析填充）
     private String publishDate;
+
+    // 文件内容哈希（用于去重）
+    @Column(name = "file_hash", unique = true)
+    private String fileHash;
 }
